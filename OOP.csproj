@@ -61,6 +61,7 @@
     <Compile Include="ShapeCreator.cs" />
     <Compile Include="ShapeDrawer.cs" />
     <Compile Include="ShapeList.cs" />
+    <Compile Include="ShapePluginInfrastructure.cs" />
     <Compile Include="Shapes\Circle.cs" />
     <Compile Include="Shapes\Ellipse.cs" />
     <Compile Include="Shapes\IShape.cs" />

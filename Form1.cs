@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -28,10 +28,17 @@ namespace OOP
         private Button saveXmlButton;
         private Button loadXmlButton;
         private ColorDialog colorDialog = new ColorDialog();
-        private readonly ShapeXmlService xmlService = new ShapeXmlService();
+        private readonly ShapeRendererRegistry rendererRegistry = new ShapeRendererRegistry();
+        private readonly ShapeSerializerRegistry serializerRegistry = new ShapeSerializerRegistry();
+        private ShapeDrawer shapeDrawer;
+        private ShapeXmlService xmlService;
 
         public MainForm()
         {
+            ShapePluginInfrastructure.RegisterBuiltIn(rendererRegistry, serializerRegistry);
+            shapeDrawer = new ShapeDrawer(rendererRegistry);
+            xmlService = new ShapeXmlService(serializerRegistry);
+
             InitializeComponent();
             InitializeShapes(); // Static initialization
             UpdateShapesList();
@@ -436,7 +443,7 @@ namespace OOP
         private void DrawingPanel_Paint(object sender, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            ShapeDrawer.DrawAllShapes(e.Graphics, shapes);
+            shapeDrawer.DrawAllShapes(e.Graphics, shapes);
         }
 
         /// <summary>
