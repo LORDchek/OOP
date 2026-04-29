@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using OOP.Shapes;
 
@@ -30,16 +31,21 @@ namespace OOP
         private ColorDialog colorDialog = new ColorDialog();
         private readonly ShapeRendererRegistry rendererRegistry = new ShapeRendererRegistry();
         private readonly ShapeSerializerRegistry serializerRegistry = new ShapeSerializerRegistry();
+        private readonly PluginLoader pluginLoader = new PluginLoader();
         private ShapeDrawer shapeDrawer;
         private ShapeXmlService xmlService;
+        private Label pluginStatusLabel;
+        private int loadedPluginsCount;
 
-        public MainForm()
+        public MainForm(string[] pluginArguments = null)
         {
             ShapePluginInfrastructure.RegisterBuiltIn(rendererRegistry, serializerRegistry);
             shapeDrawer = new ShapeDrawer(rendererRegistry);
             xmlService = new ShapeXmlService(serializerRegistry);
+            LoadPlugins(pluginArguments ?? Array.Empty<string>());
 
             InitializeComponent();
+            RefreshShapeTypeList();
             InitializeShapes(); // Static initialization
             UpdateShapesList();
         }
@@ -75,14 +81,6 @@ namespace OOP
                 Size = new Size(120, 25),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-
-            // Populate combo box with available shapes
-            foreach (string shapeName in shapeCreator.GetAvailableShapes())
-            {
-                shapeTypeCombo.Items.Add(shapeName);
-            }
-            if (shapeTypeCombo.Items.Count > 0)
-                shapeTypeCombo.SelectedIndex = 0;
 
             shapeTypeCombo.SelectedIndexChanged += (s, e) =>
             {
@@ -142,8 +140,28 @@ namespace OOP
             };
             loadXmlButton.Click += LoadXmlButton_Click;
 
+            var reloadPluginsButton = new Button
+            {
+                Text = "Reload Plugins",
+                Location = new Point(550, 8),
+                Size = new Size(105, 25)
+            };
+            reloadPluginsButton.Click += (s, e) =>
+            {
+                LoadPlugins(Array.Empty<string>());
+                RefreshShapeTypeList();
+                drawingPanel.Invalidate();
+            };
+
+            pluginStatusLabel = new Label
+            {
+                Text = $"Plugins loaded: {loadedPluginsCount}",
+                Location = new Point(665, 10),
+                Size = new Size(220, 20)
+            };
+
             toolbar.Controls.AddRange(new Control[] {
-                shapeLabel, shapeTypeCombo, colorButton, addDefaultBtn, saveXmlButton, loadXmlButton
+                shapeLabel, shapeTypeCombo, colorButton, addDefaultBtn, saveXmlButton, loadXmlButton, reloadPluginsButton, pluginStatusLabel
             });
 
             // Create drawing panel
@@ -298,6 +316,41 @@ namespace OOP
                     x += 100;
                     if (x > 600) { x = 50; y += 100; }
                 }
+            }
+        }
+
+        private void LoadPlugins(string[] pluginArguments)
+        {
+            var context = new PluginHostContext(shapeCreator, rendererRegistry, serializerRegistry);
+            string pluginsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins");
+
+            int loadedFromFolder = pluginLoader.LoadFromFolder(pluginsFolder, context);
+            int loadedFromArgs = pluginLoader.LoadFromArguments(pluginArguments, context);
+            loadedPluginsCount = loadedFromFolder + loadedFromArgs;
+
+            if (pluginStatusLabel != null)
+            {
+                pluginStatusLabel.Text = $"Plugins loaded: {loadedPluginsCount}";
+            }
+        }
+
+        private void RefreshShapeTypeList()
+        {
+            string previouslySelected = shapeTypeCombo.SelectedItem?.ToString();
+            shapeTypeCombo.Items.Clear();
+
+            foreach (string shapeName in shapeCreator.GetAvailableShapes().OrderBy(s => s))
+            {
+                shapeTypeCombo.Items.Add(shapeName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(previouslySelected) && shapeTypeCombo.Items.Contains(previouslySelected))
+            {
+                shapeTypeCombo.SelectedItem = previouslySelected;
+            }
+            else if (shapeTypeCombo.Items.Count > 0)
+            {
+                shapeTypeCombo.SelectedIndex = 0;
             }
         }
 
