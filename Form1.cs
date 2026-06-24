@@ -31,18 +31,21 @@ namespace OOP
         private ColorDialog colorDialog = new ColorDialog();
         private readonly ShapeRendererRegistry rendererRegistry = new ShapeRendererRegistry();
         private readonly ShapeSerializerRegistry serializerRegistry = new ShapeSerializerRegistry();
+        private readonly DataProcessingPipeline dataProcessingPipeline = new DataProcessingPipeline();
         private readonly PluginLoader pluginLoader = new PluginLoader();
         private ShapeDrawer shapeDrawer;
         private ShapeXmlService xmlService;
         private Label pluginStatusLabel;
-        private int loadedPluginsCount;
+        private MenuStrip menuStrip;
+        private ToolStripMenuItem dataProcessingMenu;
+        private PluginLoadResult lastPluginLoadResult = new PluginLoadResult();
 
         public MainForm(string[] pluginArguments = null)
         {
             ShapePluginInfrastructure.RegisterBuiltIn(rendererRegistry, serializerRegistry);
             shapeDrawer = new ShapeDrawer(rendererRegistry);
-            xmlService = new ShapeXmlService(serializerRegistry);
-            LoadPlugins(pluginArguments ?? Array.Empty<string>());
+            xmlService = new ShapeXmlService(serializerRegistry, dataProcessingPipeline);
+            LoadPlugins(pluginArguments ?? Array.Empty<string>(), fullReload: true);
 
             InitializeComponent();
             RefreshShapeTypeList();
@@ -58,6 +61,8 @@ namespace OOP
             this.Text = "Graphical Editor";
             this.Size = new Size(900, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            InitializeMainMenu();
 
             // Create toolbar panel
             Panel toolbar = new Panel
@@ -140,28 +145,15 @@ namespace OOP
             };
             loadXmlButton.Click += LoadXmlButton_Click;
 
-            var reloadPluginsButton = new Button
-            {
-                Text = "Reload Plugins",
-                Location = new Point(550, 8),
-                Size = new Size(105, 25)
-            };
-            reloadPluginsButton.Click += (s, e) =>
-            {
-                LoadPlugins(Array.Empty<string>());
-                RefreshShapeTypeList();
-                drawingPanel.Invalidate();
-            };
-
             pluginStatusLabel = new Label
             {
-                Text = $"Plugins loaded: {loadedPluginsCount}",
-                Location = new Point(665, 10),
-                Size = new Size(220, 20)
+                Text = GetPluginStatusText(),
+                Location = new Point(550, 10),
+                Size = new Size(330, 20)
             };
 
             toolbar.Controls.AddRange(new Control[] {
-                shapeLabel, shapeTypeCombo, colorButton, addDefaultBtn, saveXmlButton, loadXmlButton, reloadPluginsButton, pluginStatusLabel
+                shapeLabel, shapeTypeCombo, colorButton, addDefaultBtn, saveXmlButton, loadXmlButton, pluginStatusLabel
             });
 
             // Create drawing panel
@@ -319,19 +311,130 @@ namespace OOP
             }
         }
 
-        private void LoadPlugins(string[] pluginArguments)
+        private void InitializeMainMenu()
         {
-            var context = new PluginHostContext(shapeCreator, rendererRegistry, serializerRegistry);
+            menuStrip = new MenuStrip();
+
+            var settingsMenu = new ToolStripMenuItem("Настройки");
+
+            var pluginsMenu = new ToolStripMenuItem("Плагины");
+            pluginsMenu.DropDownItems.Add("Загрузить плагин из файла...", null, LoadPluginFromFile_Click);
+            pluginsMenu.DropDownItems.Add("Обновить из папки Plugins", null, ReloadPluginsFromFolder_Click);
+            settingsMenu.DropDownItems.Add(pluginsMenu);
+
+            settingsMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            dataProcessingMenu = new ToolStripMenuItem("Обработка данных");
+            settingsMenu.DropDownItems.Add(dataProcessingMenu);
+
+            menuStrip.Items.Add(settingsMenu);
+            MainMenuStrip = menuStrip;
+            Controls.Add(menuStrip);
+
+            RebuildDataProcessingMenu();
+        }
+
+        private PluginHostContext CreatePluginHostContext()
+        {
+            return new PluginHostContext(shapeCreator, rendererRegistry, serializerRegistry, dataProcessingPipeline);
+        }
+
+        private void LoadPlugins(string[] pluginArguments, bool fullReload)
+        {
+            if (fullReload)
+            {
+                pluginLoader.ResetLoadedAssemblies();
+                dataProcessingPipeline.Clear();
+            }
+
+            var context = CreatePluginHostContext();
             string pluginsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins");
 
-            int loadedFromFolder = pluginLoader.LoadFromFolder(pluginsFolder, context);
-            int loadedFromArgs = pluginLoader.LoadFromArguments(pluginArguments, context);
-            loadedPluginsCount = loadedFromFolder + loadedFromArgs;
+            var fromFolder = pluginLoader.LoadFromFolder(pluginsFolder, context);
+            var fromArgs = pluginLoader.LoadFromArguments(pluginArguments, context);
 
-            if (pluginStatusLabel != null)
+            lastPluginLoadResult = new PluginLoadResult
             {
-                pluginStatusLabel.Text = $"Plugins loaded: {loadedPluginsCount}";
+                ShapePlugins = fromFolder.ShapePlugins + fromArgs.ShapePlugins,
+                DataPlugins = fromFolder.DataPlugins + fromArgs.DataPlugins
+            };
+
+            RebuildDataProcessingMenu();
+            UpdatePluginStatusLabel();
+        }
+
+        private void ReloadPluginsFromFolder_Click(object sender, EventArgs e)
+        {
+            LoadPlugins(Array.Empty<string>(), fullReload: true);
+            RefreshShapeTypeList();
+            drawingPanel.Invalidate();
+            MessageBox.Show("Плагины перезагружены из папки Plugins.", "Плагины", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void LoadPluginFromFile_Click(object sender, EventArgs e)
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Filter = "Plugin DLL (*.dll)|*.dll";
+                dialog.Title = "Выберите файл плагина";
+
+                if (dialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                var context = CreatePluginHostContext();
+                var loaded = pluginLoader.LoadFromFile(dialog.FileName, context);
+
+                lastPluginLoadResult.ShapePlugins += loaded.ShapePlugins;
+                lastPluginLoadResult.DataPlugins += loaded.DataPlugins;
+
+                RefreshShapeTypeList();
+                RebuildDataProcessingMenu();
+                UpdatePluginStatusLabel();
+                drawingPanel.Invalidate();
+
+                MessageBox.Show(
+                    $"Загружено: фигур — {loaded.ShapePlugins}, обработки данных — {loaded.DataPlugins}.",
+                    "Плагин",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
+        }
+
+        private void RebuildDataProcessingMenu()
+        {
+            if (dataProcessingMenu == null)
+                return;
+
+            dataProcessingMenu.DropDownItems.Clear();
+
+            if (dataProcessingPipeline.Plugins.Count == 0)
+            {
+                dataProcessingMenu.DropDownItems.Add(new ToolStripMenuItem("(плагины обработки не загружены)") { Enabled = false });
+                return;
+            }
+
+            foreach (var plugin in dataProcessingPipeline.Plugins)
+            {
+                var item = new ToolStripMenuItem(plugin.MenuText)
+                {
+                    CheckOnClick = true,
+                    Checked = plugin.IsEnabled
+                };
+
+                item.CheckedChanged += (s, e) => plugin.IsEnabled = item.Checked;
+                dataProcessingMenu.DropDownItems.Add(item);
+            }
+        }
+
+        private string GetPluginStatusText()
+        {
+            return $"Плагины: фигур {lastPluginLoadResult.ShapePlugins}, обработка {lastPluginLoadResult.DataPlugins}";
+        }
+
+        private void UpdatePluginStatusLabel()
+        {
+            if (pluginStatusLabel != null)
+                pluginStatusLabel.Text = GetPluginStatusText();
         }
 
         private void RefreshShapeTypeList()
@@ -455,14 +558,18 @@ namespace OOP
         {
             using (var dialog = new SaveFileDialog())
             {
-                dialog.Filter = "XML files (*.xml)|*.xml";
-                dialog.DefaultExt = "xml";
-                dialog.FileName = "shapes.xml";
+                dialog.Filter = dataProcessingPipeline.GetSaveFileFilter();
+                dialog.DefaultExt = dataProcessingPipeline.GetDefaultExtension();
+                dialog.FileName = "shapes." + dialog.DefaultExt;
 
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
                     xmlService.Save(dialog.FileName, shapes);
-                    MessageBox.Show($"Saved to {Path.GetFileName(dialog.FileName)}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(
+                        $"Сохранено в {Path.GetFileName(dialog.FileName)} (формат: {dataProcessingPipeline.OutputFormat.ToUpper()}).",
+                        "Сохранение",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                 }
             }
         }
@@ -471,7 +578,7 @@ namespace OOP
         {
             using (var dialog = new OpenFileDialog())
             {
-                dialog.Filter = "XML files (*.xml)|*.xml";
+                dialog.Filter = dataProcessingPipeline.GetLoadFileFilter();
                 dialog.DefaultExt = "xml";
 
                 if (dialog.ShowDialog() == DialogResult.OK)
@@ -485,7 +592,11 @@ namespace OOP
 
                     UpdateShapesList();
                     drawingPanel.Invalidate();
-                    MessageBox.Show($"Loaded {loadedShapes.Count} shapes.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(
+                        $"Загружено фигур: {loadedShapes.Count} (формат после обработки: {dataProcessingPipeline.OutputFormat.ToUpper()}).",
+                        "Загрузка",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                 }
             }
         }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <OutputType>Library</OutputType>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <AssemblyName>DataProcessingPlugins</AssemblyName>
+    <RootNamespace>DataProcessingPlugins</RootNamespace>
+    <OutputPath>..\..\bin\Debug\Plugins\</OutputPath>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="XmlFormatDataPlugin.cs" />
+    <Compile Include="XmlToJsonDataPlugin.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\OOP.csproj">
+      <Project>{5BE8EB3D-EA05-47BD-8B6B-A5F5BE766801}</Project>
+      <Name>OOP</Name>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
